@@ -1,5 +1,5 @@
 # Stripe-Refund-Visualizer
-a lightweight, client-side analytics tool designed for indie makers, small business owners, and e-commerce founders who want a clearer view of their refund patterns without digging through raw CSVs or complex dashboards.
+A lightweight, client-side analytics tool designed for indie makers, small business owners, and e-commerce founders who want a clearer view of their refund patterns without digging through raw CSVs or complex dashboards.
 
 Upload your Stripe export (CSV format) and instantly visualize refund trends, breakdowns, and chargeback hotspots — all in your browser, with zero data ever leaving your device.
 
