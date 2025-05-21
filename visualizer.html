@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stripe Refund Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+
+  body {
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    background: #f4f7fa;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #6772e5;
+    color: white;
+    padding: 1.5rem 2rem;
+    text-align: center;
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    box-shadow: 0 4px 8px rgb(103 114 229 / 0.3);
+  }
+
+  main {
+    flex: 1;
+    padding: 2rem;
+    max-width: 1200px;
+    margin: auto;
+    width: 90vw;
+  }
+
+  .input-section {
+    margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+  }
+
+  label {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+  }
+
+  textarea {
+    font-family: monospace;
+    font-size: 0.9rem;
+    padding: 0.75rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    min-height: 150px;
+    resize: vertical;
+    background: white;
+    box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.1);
+  }
+
+  button {
+    margin-top: 1rem;
+    background-color: #6772e5;
+    color: white;
+    font-weight: 700;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1.05rem;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgb(103 114 229 / 0.5);
+    transition: background-color 0.3s ease;
+    align-self: flex-start;
+  }
+
+  button:hover {
+    background-color: #5561c8;
+  }
+
+  .error-message {
+    margin-top: 0.5rem;
+    color: #b00020;
+    font-weight: 600;
+  }
+
+  .charts-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit,minmax(300px,1fr));
+    gap: 2rem;
+  }
+
+  .chart-card {
+    background: white;
+    padding: 1.5rem;
+    box-shadow: 0 4px 15px rgb(0 0 0 / 0.1);
+    border-radius: 10px;
+  }
+
+  .chart-title {
+    font-weight: 700;
+    font-size: 1.2rem;
+    margin-bottom: 0.8rem;
+    text-align: center;
+    color: #444;
+  }
+
+  footer {
+    text-align: center;
+    padding: 1rem;
+    background: #e2e6f0;
+    font-size: 0.9rem;
+    color: #555;
+  }
+
+  .credits {
+    margin-top: 0.5rem;
+    font-style: italic;
+  }
+
+  @media (max-width: 450px) {
+    button {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+<header>
+  Stripe Refund Visualizer
+</header>
+<main>
+  <section class="input-section">
+    <label for="csv-input">Paste your Stripe export CSV here:</label>
+    <textarea id="csv-input" placeholder="Paste your Stripe CSV data here..."></textarea>
+    <button id="process-btn">Visualize Refunds</button>
+    <div class="error-message" id="error-msg"></div>
+  </section>
+
+  <section class="charts-container" id="charts-section" style="display:none;">
+    <div class="chart-card">
+      <div class="chart-title">Total Refunds by Reason</div>
+      <canvas id="refunds-reason-chart" aria-label="Total Refunds by Reason chart" role="img"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Chargebacks Timeline</div>
+      <canvas id="chargebacks-timeline-chart" aria-label="Chargebacks Timeline chart" role="img"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Product Categories Most Refunded</div>
+      <canvas id="categories-refunded-chart" aria-label="Product Categories Most Refunded chart" role="img"></canvas>
+    </div>
+  </section>
+</main>
+<footer>
+  Created as a client-side tool for e-commerce founders to analyze Stripe refunds. Powered by Chart.js.
+  <div class="credits">No data is sent anywhere — privacy guaranteed.</div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(() => {
+  const csvInput = document.getElementById('csv-input');
+  const processBtn = document.getElementById('process-btn');
+  const errorMsg = document.getElementById('error-msg');
+  const chartsSection = document.getElementById('charts-section');
+
+  let refundsReasonChart, chargebacksTimelineChart, categoriesRefundedChart;
+
+  // A simple CSV parser supporting quoted fields, comma separators, and line breaks within quotes
+  function parseCSV(text) {
+    const rows = [];
+    let current = '';
+    let insideQuotes = false;
+    let row = [];
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '"') {
+        if (insideQuotes && text[i+1] === '"') {
+          current += '"'; // escaped quote
+          i++;
+        } else {
+          insideQuotes = !insideQuotes;
+        }
+      } else if (char === ',' && !insideQuotes) {
+        row.push(current);
+        current = '';
+      } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+        if (char === '\r' && text[i+1] === '\n') { // handle \r\n
+          i++;
+        }
+        row.push(current);
+        rows.push(row);
+        current = '';
+        row = [];
+      } else {
+        current += char;
+      }
+    }
+    // push last row if exists
+    if (current.length > 0 || row.length > 0) {
+      row.push(current);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // Convert array of arrays to array of objects using header row
+  function arrayToObjects(arr) {
+    const header = arr[0];
+    return arr.slice(1).map(row => {
+      const obj = {};
+      header.forEach((h, i) => {
+        obj[h.trim()] = row[i] ? row[i].trim() : '';
+      });
+      return obj;
+    });
+  }
+
+  // Parse date string to Date object safely
+  function parseDate(dateStr) {
+    // Stripe export mostly uses ISO8601 or similar
+    const d = new Date(dateStr);
+    if (isNaN(d)) return null;
+    return d;
+  }
+
+  // Aggregate refunds by reason
+  function aggregateRefundsByReason(refundRows) {
+    const reasonsCount = {};
+    refundRows.forEach(r => {
+      let reason = r['Refund Reason'] || r['Reason'] || 'Unknown';
+      // Normalize to lower case and capitalize first letter for cleaner keys
+      reason = reason.toLowerCase();
+      reason = reason.charAt(0).toUpperCase() + reason.slice(1);
+      reasonsCount[reason] = (reasonsCount[reason] || 0) + 1;
+    });
+    return reasonsCount;
+  }
+
+  // Get chargebacks timeline (count per month)
+  function aggregateChargebacksTimeline(chargebackRows) {
+    const counts = {};
+    chargebackRows.forEach(r => {
+      let dateStr = r['Created (UTC)'] || r['Created'] || r['Date'] || '';
+      const date = parseDate(dateStr);
+      if (!date) return;
+      const monthKey = `${date.getFullYear()}-${('0'+(date.getMonth()+1)).slice(-2)}`; // YYYY-MM
+      counts[monthKey] = (counts[monthKey] || 0) + 1;
+    });
+    return counts;
+  }
+
+  // Aggregate refunds by product category
+  function aggregateRefundsByCategory(refundRows, productsMap) {
+    const categoriesCount = {};
+    refundRows.forEach(r => {
+      // Try to get product/category info from description or metadata fields
+      // Stripe export often includes "Product" or "Description" columns
+      let productInfo = r['Product'] || r['Description'] || '';
+      if (!productInfo && r['Metadata']) {
+        productInfo = r['Metadata'];
+      }
+
+      let category = 'Unknown';
+      // Try to guess category from the product info string by keyword matching
+      if (productInfo) {
+        productInfo = productInfo.toLowerCase();
+        if (productInfo.includes('shirt')) category = 'Shirts';
+        else if (productInfo.includes('hat')) category = 'Hats';
+        else if (productInfo.includes('phone')) category = 'Phones';
+        else if (productInfo.includes('book')) category = 'Books';
+        else if (productInfo.includes('subscription')) category = 'Subscriptions';
+        else if (productInfo.includes('digital')) category = 'Digital';
+        else if (productInfo.includes('service')) category = 'Services';
+        else category = 'Others';
+      }
+
+      categoriesCount[category] = (categoriesCount[category] || 0) + 1;
+    });
+    return categoriesCount;
+  }
+
+  // Helper to create chart or update data if chart exists
+  function createOrUpdateChart(chart, ctx, config) {
+    if (chart) {
+      chart.config.data = config.data;
+      chart.update();
+      return chart;
+    } else {
+      return new Chart(ctx, config);
+    }
+  }
+
+  // Main process function
+  function processCSV() {
+    const rawCSV = csvInput.value.trim();
+    if (!rawCSV) {
+      errorMsg.textContent = 'Please paste Stripe CSV data to proceed.';
+      chartsSection.style.display = 'none';
+      return;
+    }
+    errorMsg.textContent = '';
+
+    let parsed;
+    try {
+      parsed = parseCSV(rawCSV);
+    } catch (e) {
+      errorMsg.textContent = 'Failed to parse CSV data. Please check format.';
+      chartsSection.style.display = 'none';
+      return;
+    }
+
+    if (parsed.length < 2) {
+      errorMsg.textContent = 'CSV data seems too short or missing headers.';
+      chartsSection.style.display = 'none';
+      return;
+    }
+
+    // Convert to array of objects
+    const data = arrayToObjects(parsed);
+
+    // Identify refunds and chargebacks rows:
+    // Stripe exports have a column "Type" or "Status" or "Refund Reason" for refunds
+    // We assume refund rows have "Type" column containing "refund" or "chargeback"
+    // Because Stripe exports may vary, we'll try to detect intelligently.
+
+    // Try to detect key columns:
+    const typeCol = Object.keys(data[0]).find(k => k.toLowerCase().includes('type')) || null;
+    const refundReasonCol = Object.keys(data[0]).find(k => k.toLowerCase().includes('refund reason')) || null;
+    const productCol = Object.keys(data[0]).find(k => k.toLowerCase().includes('description') || k.toLowerCase().includes('product') || false);
+    const createdCol = Object.keys(data[0]).find(k => k.toLowerCase().includes('created')) || null;
+
+    // Separate refunds and chargebacks:
+    const refunds = [];
+    const chargebacks = [];
+
+    data.forEach(row => {
+      const typeVal = typeCol ? (row[typeCol] || '').toLowerCase() : '';
+      if (typeVal.includes('refund')) {
+        refunds.push(row);
+      } else if (typeVal.includes('chargeback')) {
+        chargebacks.push(row);
+      }
+    });
+
+    if (refunds.length === 0 && chargebacks.length === 0) {
+      errorMsg.textContent = 'No refund or chargeback rows detected in CSV.';
+      chartsSection.style.display = 'none';
+      return;
+    }
+
+    // Aggregate data for charts
+    const refundsByReason = aggregateRefundsByReason(refunds);
+    const chargebacksTimeline = aggregateChargebacksTimeline(chargebacks);
+    const refundsByCategory = aggregateRefundsByCategory(refunds);
+
+    // Prepare Total Refunds by Reason chart (Bar chart)
+    const refundsReasonLabels = Object.keys(refundsByReason);
+    const refundsReasonValues = refundsReasonLabels.map(k => refundsByReason[k]);
+
+    // Prepare Chargebacks Timeline chart (Line chart)
+    const months = Object.keys(chargebacksTimeline).sort();
+    const chargebackCounts = months.map(m => chargebacksTimeline[m]);
+
+    // Prepare Product Categories chart (Bar chart)
+    const categoriesLabels = Object.keys(refundsByCategory);
+    const categoriesValues = categoriesLabels.map(k => refundsByCategory[k]);
+
+    // Create / Update charts with Chart.js
+    const refundsReasonCtx = document.getElementById('refunds-reason-chart').getContext('2d');
+    const chargebacksTimelineCtx = document.getElementById('chargebacks-timeline-chart').getContext('2d');
+    const categoriesRefundedCtx = document.getElementById('categories-refunded-chart').getContext('2d');
+
+    refundsReasonChart = createOrUpdateChart(refundsReasonChart, refundsReasonCtx, {
+      type: 'bar',
+      data: {
+        labels: refundsReasonLabels,
+        datasets: [{
+          label: 'Refund Count',
+          data: refundsReasonValues,
+          backgroundColor: 'rgba(103, 114, 229, 0.7)',
+          borderColor: 'rgba(103, 114, 229, 1)',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+            title: { display: true, text: 'Count' }
+          },
+          x: {
+            title: { display: true, text: 'Refund Reason' }
+          }
+        }
+      }
+    });
+
+    chargebacksTimelineChart = createOrUpdateChart(chargebacksTimelineChart, chargebacksTimelineCtx, {
+      type: 'line',
+      data: {
+        labels: months,
+        datasets: [{
+          label: 'Chargebacks',
+          data: chargebackCounts,
+          fill: false,
+          borderColor: 'rgba(219, 68, 55, 0.85)',
+          backgroundColor: 'rgba(219, 68, 55, 0.4)',
+          tension: 0.3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          borderWidth: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: true },
+          tooltip: { mode: 'nearest', intersect: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+            title: { display: true, text: 'Count' }
+          },
+          x: {
+            title: { display: true, text: 'Month' }
+          }
+        }
+      }
+    });
+
+    categoriesRefundedChart = createOrUpdateChart(categoriesRefundedChart, categoriesRefundedCtx, {
+      type: 'bar',
+      data: {
+        labels: categoriesLabels,
+        datasets: [{
+          label: 'Refund Count',
+          data: categoriesValues,
+          backgroundColor: 'rgba(60, 186, 159, 0.8)',
+          borderColor: 'rgba(60, 186, 159, 1)',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+            title: { display: true, text: 'Count' }
+          },
+          y: {
+            title: { display: true, text: 'Category' }
+          }
+        }
+      }
+    });
+
+    chartsSection.style.display = 'grid';
+  }
+
+  processBtn.addEventListener('click', () => {
+    processCSV();
+  });
+
+})();
+</script>
+</body>
+</html>
+
