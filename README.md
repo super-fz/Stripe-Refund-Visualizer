@@ -9,7 +9,6 @@ Tech Stack:
 <img src ="https://github.com/user-attachments/assets/32481355-9279-4606-b121-6feb83043fc3" height = "55">
 <img src ="https://github.com/super-fz/Social-Media-Dashboard/assets/122122054/f744032c-55b2-460e-b068-254829613310" height = "55">
 <img src ="https://github.com/user-attachments/assets/59444db5-e905-4800-8707-4e9d2adb68a1" height = "55">
-<img src ="https://github.com/user-attachments/assets/273a18f5-ec1d-406e-a604-302c9612d6b7" height = "55">
 
 ![image](https://github.com/user-attachments/assets/b8981f18-78c7-4fff-b5fb-1f9f79b6655b)
 
